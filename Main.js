@@ -39,12 +39,12 @@ async function scrapePage(page) {
                 author: select(book, ".block__item-author", "textContent"),
                 imgUrl: select(book, ".b-item__cover > img", "src"),
                 genres: genres,
+                page: document.URL.split("page=")[1],
             });
         });
         return booksDetails;
     });
 }
-
 async function makeSpreadsheet(fileName, dataList) {
     let workbook = new ExcelJS.Workbook();
     workbook.columns = [
@@ -54,10 +54,19 @@ async function makeSpreadsheet(fileName, dataList) {
         { header: "Genres", key: "Genres" },
         { header: "Price", key: "price" },
         { header: "Image", key: "imgURL" },
+        { header: "Page", key: "page" },
     ];
     workbook.addWorksheet("BookInfo");
     let ws = workbook.getWorksheet("BookInfo");
-    ws.addRow(["Title", "Subtitle", "Author", "Genres", "Price", "ImageUrl"]);
+    ws.addRow([
+        "Title",
+        "Subtitle",
+        "Author",
+        "Genres",
+        "Price",
+        "ImageUrl",
+        "Page",
+    ]);
     dataList.forEach((book) => {
         ws.addRow([
             book.title,
@@ -66,50 +75,35 @@ async function makeSpreadsheet(fileName, dataList) {
             book.genres.toString(),
             book.price,
             book.imgUrl,
+            book.page,
         ]);
     });
     await workbook.xlsx.writeFile(`${fileName}.xlsx`);
 }
-async function feedBooksScraper(url, filename) {
+async function feedBooksScraper(url, filename, startPage = 1, endPage = 200) {
     // Launch the browser and open a new blank page
-    const browser = await puppeteer.launch({ headless: "new" });
+    const browser = await puppeteer.launch({
+        headless: false,
+    });
     const page = await browser.newPage();
 
     // Navigate the page to a URL
-    await page.goto(url);
-    console.log("Page Opened");
-    // wait for page to finish loading
-    await page.waitForNetworkIdle({ timeout: 0 });
+    await page.goto(`${url}&page=${startPage}`, {
+        timeout: 0,
+        waitUntil: "domcontentloaded",
+    });
     console.log("navigation finished :)");
     // scrape current page data
     let books = [];
-    let nextPageButton = await page.$(
-        `a[data-post-hog="catalog-changepage-next"]`,
-        (el) => el
-    );
-    let currentPage = await page.$eval(
-        ".pagination__item--active",
-        (el) => el.textContent
-    );
-    console.log(nextPageButton);
     // Scrape Pages
-    while (currentPage < 201 && nextPageButton) {
-        currentPage = await page.$eval(
-            ".pagination__item--active",
-            (el) => el.textContent
-        );
-        nextPageButton = await page.$(
-            `a[data-post-hog="catalog-changepage-next"]`,
-            (el) => el
-        );
-        console.log(`Currently Scraping Page: ${currentPage}`);
+    for (let i = startPage; i <= endPage; i++) {
+        await page.goto(`${url}&page=${i}`, {
+            timeout: 0,
+            waitUntil: "domcontentloaded",
+        });
         books.push(...(await scrapePage(page)));
-        if (!nextPageButton) break;
-        console.log("Progressing to new page!");
-        await page.click('a[data-post-hog="catalog-changepage-next"]');
-        await page.waitForNetworkIdle({ timeout: 0 });
-        console.log("Arrived at new page!");
     }
+
     console.log(books);
     console.log("Finished scraping books!");
 
@@ -118,4 +112,9 @@ async function feedBooksScraper(url, filename) {
     console.log("Data Outputted!");
     await browser.close();
 }
-feedBooksScraper("https://www.feedbooks.com/drm_free", "engMain");
+feedBooksScraper(
+    "https://www.feedbooks.com/drm_free?lang=all",
+    "iteration02All",
+    101,
+    200
+);
